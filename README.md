@@ -119,7 +119,7 @@ Si le client veut accèder au serveur web, il doit passer par le reverse proxy q
 ```bash
 sudo docker exec -it exi2_rp1_1 sh
 tcpdump -i any -w dump.pcap -s0 port 80
-sudo docker cp exo _rp1_1:/dump.pcap .
+sudo docker cp exo2_rp1_1:/dump.pcap .
 ```
 
 Pour tcpdump, nous avons utilisé l'option `-i any` pour capturer tous les flux réseaux et filtrer sur le port 80 (HTTP), puis l'option `-s0` pour capturer le contenu des paquets.
@@ -171,15 +171,15 @@ cat /home/tpproxy/exo2/rp1-nginx.conf
 Fichier `rp1-custom.conf` :
 
 ```conf
-# Basic reverse proxy config
-
 server {
+    # Ecoute sur le port 80
     listen       80;
     listen  [::]:80;
     server_name  localhost;
 
     access_log  /var/log/nginx/rp1.access.log  main;
 
+    # Reverse proxy du / vers le serveur web1
     location / {
         proxy_pass http://exo2_web1_1/;
     }
@@ -188,6 +188,8 @@ server {
 
     # redirect server error pages to the static page /50x.html
     #
+
+    # Pages d'erreurs contenu dans le dossier /usr/share/nginx/html
     error_page   500 502 503 504  /50x.html;
     location = /50x.html {
         root   /usr/share/nginx/html;
@@ -215,6 +217,7 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
 
+    # Format de log
     log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
                       '$status $body_bytes_sent "$http_referer" '
                       '"$http_user_agent" "$http_x_forwarded_for"';
@@ -228,16 +231,53 @@ http {
 
     #gzip  on;
 
+    # Inclusion des autres fichiers de configuration dont rp1-nginx.conf
     include /etc/nginx/conf.d/*.conf;
 }
 ```
 
-On a complété la configuration pour permettre l’ajout ou la modification d’entêtes HTTP XReal-IP, X-Forwarder-For et X-Forwarded-Proto
+On a complété la configuration pour permettre l’ajout ou la modification d’entêtes HTTP X-Real-IP, X-Forwarder-For et X-Forwarded-Proto (dans le fichier `rp1-custom.conf`) :
+
+```conf
+server {
+    # ...
+
+    location / {
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+
+        proxy_pass http://exo2_web1_1/;
+    }
+
+    # ...
+}
+```
+
+Pour vérifier la modification, nous avons fait une capture réseau :
+
+```bash
+tcpdump -i any -w dump_forward.pcap -s0 port 80
+sudo docker cp exo2_rp1_1:/dump_forward.pcap .
+```
+
+![Trame Wireshark](reverse-proxy/img/wireshark_forward.png)
+
+Nous remarquons bien que les 3 entêtes ont été ajoutés.
 
 Les avantages d'une telle configuration sont :
-- le serveur web1 peut savoir l'IP du client (via l'entête HTTP X-Forwarded-For)
-- le serveur web1 peut savoir le protocole du client (via l'entête X-Forwarded-Proto)
+- le serveur web1 peut savoir l'IP du client (via l'entête HTTP X-Forwarded-For et l'entête HTTP X-Real-IP et par exemple adapter la langue du site selon l'IP)
+- le serveur web1 peut savoir le protocole du client (via l'entête X-Forwarded-Proto, http ou https)
+
 
 **9. Quel est l’objectif de cette fonctionnalité ? Expliquez brièvement son fonctionnement**
 
-```bash
+NGINX propose de configurer des buffers. En activant les buffers on a les avantages suivants :
+- Mise en cache de la réponse : si 2 clients demandent la même ressource (qui n'est pas différente entre les 2 clients comme des images), le reverse proxy peut la garder en cache pour répondre plus rapidement au client et ne pas soliciter le serveur web.
+- Maintient de la session avec keep-alive : réutilise la même connexion TCP pour plusieurs requêtes HTTP en envoyant un "keep-alive" toutes les 5 minutes au client. Cela permet que le client a eu une réponse plus rapidement.
+- Requête asynchrone : le reverse proxy stocke la réponse du serveur web jusqu'à ce qu'elle soit complète et la renvoie après au client. Lorsque le client n'a pas une bande passante élévé, le reverse proxy demande l'entiéreté de la réponse au serveur et stock la réponse pour la fournir petit à petit au client. Cela peut être un inconvénient pour les clients rapides si il souhaite avoir la réponse le plus vite possible.
+
+## Réécriture d’URL avec un reverse proxy base sur NGINX
+
+**Q10. En prenant en compte les éléments fournis, décrivez sous la forme d’un schéma l'environnement de test à instancier. Décrivez les réécritures à effectuer.**
+
