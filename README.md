@@ -7,7 +7,7 @@ Par [Mathis Boultoureau](https://github.com/mboultoureau/) et [Ronan Renoux](htt
 **Q1. Combien de réseaux sont actuellement créés ? Quels sont les différents types de réseaux listés par docker ?**
 
 ```bash
-`sudo docker network ls
+sudo docker network ls
 ```
 
 Il y a 4 réseaux listés :
