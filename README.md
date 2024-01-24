@@ -94,4 +94,150 @@ La réponse bonus est un kangouru (à la question `Who is Skippy?`).
 
 ## Mise en place d'un reverse proxy simple basé sur NGINX
 
-**Q5. A**
+**Q5. Décrivez sous la forme d’un schéma l’environnement de test instancié en distinguant les différents éléments et les différents réseaux/adresses IP impliqués.**
+
+Il y a deux réseaux :
+
+| Réseau | Subnet |
+| --- | --- |
+| net_pub | 192.168.20.0/24 |
+| net_priv | 192.168.30.0/24 |
+
+Il y a deux conteneurs :
+
+| Conteneur | Description | Réseaux |
+| --- | --- | --- |
+| rp1 | Reverse proxy NGINX | net_pub (192.168.20.2), net_priv (192.168.30.10) | 
+| web1 | Serveur HTTP Apache | net_priv (192.168.30.11) |
+
+Si le client veut accèder au serveur web, il doit passer par le reverse proxy qui va intercepter la requête vers le serveur web et renvoyer la réponse au client. 
+
+![Schéma d'architecture reverse proxy](reverse-proxy/img/reverse_proxy.drawio.png)
+
+**Q6. Représentez sous la forme d’un graphe de flux le déroulement des échanges (aidezvous des fonctionnalités de Wireshark). Décrivez et expliquez les différents flux réseaux.**
+
+```bash
+sudo docker exec -it exi2_rp1_1 sh
+tcpdump -i any -w dump.pcap -s0 port 80
+sudo docker cp exo _rp1_1:/dump.pcap .
+```
+
+Pour tcpdump, nous avons utilisé l'option `-i any` pour capturer tous les flux réseaux et filtrer sur le port 80 (HTTP), puis l'option `-s0` pour capturer le contenu des paquets.
+
+![Trame Wireshark](reverse-proxy/img/wireshark.png)
+
+Nous pouvons voir les étapes suivantes :
+- Le client établit une connexion TCP avec le reverse proxy (sur le port 80). 
+- Le client demande la page / avec une requête GET.
+- Le reverse proxy renvoit un ACK pour signaler au client qu'il a bien reçu la requête et qu'il va la traiter.
+- Le reverse proxy (sur son port 38468) établit une connexion avec le serveur web (sur son port 80).
+- Le reverse proxy demande la page / avec une requête GET.
+- Le serveur web renvoit la page au reverse proxy.
+- Le reverse proxy confirme réception de la réponse.
+- Le reverse proxy renvoit la page web au client.
+- Le client confirme la bonne réception de la page.
+- Le reverse proxy confirme la bonne réception de la page au serveur web.
+
+**Q7. Quelles sont les principales différences entre les logs de rp1 et web1 ? Quels champs sont manquants pour la connexion via Telnet ? Quelles informations pertinentes pourraient être ajoutées côté web1 vis-à-vis du client ?**
+
+```bash
+telnet 192.168.20.2 80
+GET /
+
+sudo docker exec -it exo2_rp1_1 sh
+more /var/log/nginx/rp1.access.log # Réponse : 192.168.20.1 "GET /" 200 45 "-" "-" "-"
+
+sudo docker exec -it exo2_web1_1 sh
+more /usr/local/apache2/logs/access_log # Réponse : 192.168.30.10 "GET / HTTP/1.0" 200 45 "-" "-"
+```
+
+Les différences entre les logs de rp1 et de web1 sont :
+- l'IP source, le reverse proxy voit l'IP du client (192.168.20.1) tandis que le serveur web1 voit l'IP du reverse proxy (192.168.30.10).
+- Le protocole et la version HTTP est ajouté dans les logs du serveur web1 car le reverse proxy l'ajoute si elle est manquante.
+
+Les champs manquants pour la connexion via Telnet sont l'user agent et le protocole et la version utilisé (HTTP/1.0).
+
+Les informations pertinentes qui pourraient être ajoutées côté web1 vis-à-vis du client sont :
+- l'IP du client (via l'entête HTTP X-Forwarded-For)
+- le protocole du client (via l'entête X-Forwarded-Proto)
+
+**Q8. Comparez les entêtes HTTP côté client et côté serveur web1. Quels sont les avantages d’une telle configuration ?**
+
+```bash
+cat /home/tpproxy/exo2/rp1-custom.conf
+cat /home/tpproxy/exo2/rp1-nginx.conf
+```
+
+Fichier `rp1-custom.conf` :
+
+```conf
+# Basic reverse proxy config
+
+server {
+    listen       80;
+    listen  [::]:80;
+    server_name  localhost;
+
+    access_log  /var/log/nginx/rp1.access.log  main;
+
+    location / {
+        proxy_pass http://exo2_web1_1/;
+    }
+
+    #error_page  404              /404.html;
+
+    # redirect server error pages to the static page /50x.html
+    #
+    error_page   500 502 503 504  /50x.html;
+    location = /50x.html {
+        root   /usr/share/nginx/html;
+    }
+
+}
+```
+
+Fichier `rp1-nginx.conf` :
+
+```conf
+user  nginx;
+worker_processes  auto;
+
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile        on;
+    #tcp_nopush     on;
+
+    keepalive_timeout  65;
+
+    #gzip  on;
+
+    include /etc/nginx/conf.d/*.conf;
+}
+```
+
+On a complété la configuration pour permettre l’ajout ou la modification d’entêtes HTTP XReal-IP, X-Forwarder-For et X-Forwarded-Proto
+
+Les avantages d'une telle configuration sont :
+- le serveur web1 peut savoir l'IP du client (via l'entête HTTP X-Forwarded-For)
+- le serveur web1 peut savoir le protocole du client (via l'entête X-Forwarded-Proto)
+
+**9. Quel est l’objectif de cette fonctionnalité ? Expliquez brièvement son fonctionnement**
+
+```bash
