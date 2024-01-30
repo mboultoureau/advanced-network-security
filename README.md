@@ -87,6 +87,7 @@ Le serveur *web1* est un serveur Nginx (1.25.3) tandis que le serveur *web2* est
 ![Capture Wireshark web2](getting_started/img/wireshark_web2.png)
 
 Les codes de retours HTTP sont :
+
 - 200 : la ressource est bien trouvé
 - 404 : la ressource n'est pas trouvé (le navigateur par défaut demande `favicon.ico` qui n'est pas sur le serveur)
 
@@ -127,6 +128,7 @@ Pour tcpdump, nous avons utilisé l'option `-i any` pour capturer tous les flux 
 ![Trame Wireshark](reverse-proxy/img/wireshark.png)
 
 Nous pouvons voir les étapes suivantes :
+
 - Le client établit une connexion TCP avec le reverse proxy (sur le port 80). 
 - Le client demande la page / avec une requête GET.
 - Le reverse proxy renvoit un ACK pour signaler au client qu'il a bien reçu la requête et qu'il va la traiter.
@@ -152,12 +154,14 @@ more /usr/local/apache2/logs/access_log # Réponse : 192.168.30.10 "GET / HTTP/1
 ```
 
 Les différences entre les logs de rp1 et de web1 sont :
+
 - l'IP source, le reverse proxy voit l'IP du client (192.168.20.1) tandis que le serveur web1 voit l'IP du reverse proxy (192.168.30.10).
 - Le protocole et la version HTTP est ajouté dans les logs du serveur web1 car le reverse proxy l'ajoute si elle est manquante.
 
 Les champs manquants pour la connexion via Telnet sont l'user agent et le protocole et la version utilisé (HTTP/1.0).
 
 Les informations pertinentes qui pourraient être ajoutées côté web1 vis-à-vis du client sont :
+
 - l'IP du client (via l'entête HTTP X-Forwarded-For)
 - le protocole du client (via l'entête X-Forwarded-Proto)
 
@@ -266,6 +270,7 @@ sudo docker cp exo2_rp1_1:/dump_forward.pcap .
 Nous remarquons bien que les 3 entêtes ont été ajoutés.
 
 Les avantages d'une telle configuration sont :
+
 - le serveur web1 peut savoir l'IP du client (via l'entête HTTP X-Forwarded-For et l'entête HTTP X-Real-IP et par exemple adapter la langue du site selon l'IP)
 - le serveur web1 peut savoir le protocole du client (via l'entête X-Forwarded-Proto, http ou https)
 
@@ -273,11 +278,7 @@ Les avantages d'une telle configuration sont :
 **9. Quel est l’objectif de cette fonctionnalité ? Expliquez brièvement son fonctionnement**
 
 NGINX propose de configurer des buffers. En activant les buffers on a les avantages suivants :
+
 - Mise en cache de la réponse : si 2 clients demandent la même ressource (qui n'est pas différente entre les 2 clients comme des images), le reverse proxy peut la garder en cache pour répondre plus rapidement au client et ne pas soliciter le serveur web.
 - Maintient de la session avec keep-alive : réutilise la même connexion TCP pour plusieurs requêtes HTTP en envoyant un "keep-alive" toutes les 5 minutes au client. Cela permet que le client a eu une réponse plus rapidement.
 - Requête asynchrone : le reverse proxy stocke la réponse du serveur web jusqu'à ce qu'elle soit complète et la renvoie après au client. Lorsque le client n'a pas une bande passante élévé, le reverse proxy demande l'entiéreté de la réponse au serveur et stock la réponse pour la fournir petit à petit au client. Cela peut être un inconvénient pour les clients rapides si il souhaite avoir la réponse le plus vite possible.
-
-## Réécriture d’URL avec un reverse proxy base sur NGINX
-
-**Q10. En prenant en compte les éléments fournis, décrivez sous la forme d’un schéma l'environnement de test à instancier. Décrivez les réécritures à effectuer.**
-
